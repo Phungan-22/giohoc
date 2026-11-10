@@ -147,6 +147,7 @@ fun StudentHome(
         if (!usage || !overlay || !notif) PermissionCard(usage, overlay, notif)
         TodayCard(cfg, st)
         SelfLockCard(store, st, ready = usage && overlay, onChanged = onChanged)
+        DiagCard()
         ResultsCard(store, cfg)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TextButton(onClick = onJoin, enabled = !st.locked) { Text("Nhập mã lớp mới") }
@@ -229,7 +230,10 @@ fun PermissionCard(usage: Boolean, overlay: Boolean, notif: Boolean) {
         if (Build.VERSION.SDK_INT >= 33) {
             PermRow("Thông báo", notif) { notifLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS) }
         }
-        Note("Máy Xiaomi, Oppo, Vivo, Samsung hay tự tắt app chạy nền: vào cài đặt pin, chọn Không hạn chế cho Giờ Học.")
+        Note("Máy Xiaomi, Oppo, Vivo, Samsung hay tự tắt app chạy nền: vào cài đặt pin chọn Không hạn chế, và bật Tự khởi động cho Giờ Học.")
+        TextButton(onClick = {
+            open(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${ctx.packageName}")))
+        }) { Text("Mở trang cài đặt của Giờ Học") }
         TextButton(onClick = { open(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) }) {
             Text("Mở cài đặt pin")
         }
@@ -463,5 +467,34 @@ fun QuizScreen(store: Store, cfg: ClassConfig, ref: PeriodRef, onDone: () -> Uni
             Button(onClick = onDone, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text("Xong") }
         }
         Note("Gọi điện vẫn dùng được bất cứ lúc nào.")
+    }
+}
+
+
+@Composable
+fun DiagCard() {
+    val ctx = LocalContext.current
+    var tick by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(1000)
+            tick++
+        }
+    }
+    val running = tick >= 0 && LockService.running
+    val label = Apps.label(ctx, Diag.pkg)
+    Section("Kiểm tra hoạt động") {
+        Note("Dịch vụ khóa: " + if (running) "đang chạy (đã quét ${Diag.ticks} lần)" else "CHƯA chạy")
+        Note("App đang mở: $label (${Diag.pkg})")
+        Note("Quyết định: ${Diag.decision}")
+        if (Diag.error.isNotEmpty()) Note("Lỗi: ${Diag.error}")
+        if (Diag.lastLaunchAt > 0) Note("Đã gọi màn hình chặn lúc " + java.text.SimpleDateFormat("HH:mm:ss").format(Diag.lastLaunchAt))
+        OutlinedButton(
+            onClick = {
+                LockService.start(ctx)
+                Diag.testUntil = System.currentTimeMillis() + 5000
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Thử màn hình chặn 5 giây") }
     }
 }

@@ -39,6 +39,13 @@ fun minutesLeft(ms: Long): String {
 }
 
 object LockEngine {
+    fun whyNot(ctx: Context, pkg: String, st: LockState): String = when {
+        pkg in Apps.essentials(ctx) -> "app thiết yếu"
+        !Apps.hasLauncher(ctx, pkg) -> "không có biểu tượng (app hệ thống)"
+        st.blockCategories != null -> "nhóm app (category=${Apps.category(ctx, pkg)}) không nằm trong nhóm đã chọn"
+        else -> "app được phép trong tiết này"
+    }
+
     /** Sau tiết cuối, học sinh còn 10 phút để làm câu hỏi của tiết đó. */
     private const val LAST_QUIZ_WINDOW_MIN = 10L
 
@@ -114,6 +121,7 @@ object LockEngine {
         val cats = st.blockCategories
         if (cats != null) {
             if (-1 in cats) return true
+            if (ApplicationInfo.CATEGORY_GAME in cats && Apps.isGame(ctx, pkg)) return true
             return Apps.category(ctx, pkg) in cats
         }
         return pkg !in st.allowed
@@ -121,6 +129,14 @@ object LockEngine {
 }
 
 object Apps {
+    @Suppress("DEPRECATION")
+    fun isGame(ctx: Context, pkg: String): Boolean = try {
+        val ai = ctx.packageManager.getApplicationInfo(pkg, 0)
+        ai.category == ApplicationInfo.CATEGORY_GAME || (ai.flags and ApplicationInfo.FLAG_IS_GAME) != 0
+    } catch (e: Exception) {
+        false
+    }
+
     private var essentialCache: Set<String> = emptySet()
     private var essentialAt = 0L
     private val launcherCache = HashMap<String, Boolean>()

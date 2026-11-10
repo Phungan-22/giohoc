@@ -15,27 +15,36 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
-import android.os.SystemClock
 import androidx.core.app.ServiceCompat
 
 /**
  * Chạy nền, mỗi giây xem app nào đang ở trên màn hình (qua UsageStatsManager).
- * Nếu đang trong giờ khóa và app đó không được phép thì mở BlockActivity đè lên.
+ * Nếu đang trong giờ khóa và app đó không được phép thì vẽ lớp phủ BlockOverlay đè lên.
  * Không dùng Accessibility, không đọc nội dung màn hình.
  */
+object Diag {
+    @Volatile var pkg: String = "(chưa thấy)"
+    @Volatile var decision: String = "-"
+    @Volatile var error: String = ""
+    @Volatile var lastLaunchAt: Long = 0L
+    @Volatile var ticks: Int = 0
+    @Volatile var testUntil: Long = 0L
+}
+
 class LockService : Service() {
     private val handler = Handler(Looper.getMainLooper())
     private var lastPkg: String? = null
-    private var lastBlockAt = 0L
+    private val overlay by lazy { BlockOverlay(this) }
     private var lastNotifText = ""
 
     private val tick = object : Runnable {
         override fun run() {
             try {
                 check()
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                Diag.error = e.javaClass.simpleName + ": " + (e.message ?: "")
             }
-            handler.postDelayed(this, 1000)
+            handler.postDelayed(this, 500)
         }
     }
 
@@ -55,29 +64,36 @@ class LockService : Service() {
     override fun onDestroy() {
         running = false
         handler.removeCallbacks(tick)
+        overlay.hide()
         super.onDestroy()
     }
 
     private fun check() {
+        Diag.ticks++
         val st = LockEngine.state(this)
         val text = st.title + "|" + st.detail
         if (text != lastNotifText) {
             lastNotifText = text
             getSystemService(NotificationManager::class.java).notify(NOTIF_ID, buildNotif(st.title, st.detail))
         }
-        if (!st.locked || !Perms.hasUsage(this)) return
-        val pkg = foregroundPackage() ?: return
-        if (pkg == packageName) return
-        if (LockEngine.shouldBlock(this, pkg, st)) {
-            val now = SystemClock.elapsedRealtime()
-            if (now - lastBlockAt > 800) {
-                lastBlockAt = now
-                startActivity(
-                    Intent(this, BlockActivity::class.java)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                        .putExtra(BlockActivity.EXTRA_PKG, pkg)
-                )
-            }
+        if (System.currentTimeMillis() < Diag.testUntil) {
+            Diag.decision = "Đang hiện màn hình chặn thử"
+            if (overlay.show(null, st)) Diag.lastLaunchAt = System.currentTimeMillis()
+            return
+        }
+        if (!Perms.hasUsage(this)) { Diag.decision = "Thiếu quyền dữ liệu sử dụng"; overlay.hide(); return }
+        val pkg = foregroundPackage()
+        if (pkg == null) { Diag.decision = "Chưa đọc được app đang mở"; overlay.hide(); return }
+        Diag.pkg = pkg
+        if (!st.locked) { Diag.decision = "Máy đang không trong giờ khóa"; overlay.hide(); return }
+        if (pkg == packageName) { Diag.decision = "Đang ở trong Giờ Học"; overlay.hide(); return }
+        val block = LockEngine.shouldBlock(this, pkg, st)
+        Diag.decision = if (block) "CHẶN" else "Không chặn: " + LockEngine.whyNot(this, pkg, st)
+        if (block) {
+            if (!overlay.showing) Diag.lastLaunchAt = System.currentTimeMillis()
+            overlay.show(pkg, st)
+        } else {
+            overlay.hide()
         }
     }
 

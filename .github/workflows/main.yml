@@ -14,11 +14,15 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11.1"
       - name: Build debug APK
         run: |
-          chmod +x gradlew
-          ./gradlew assembleDebug --stacktrace
+          DIR=$(dirname "$(find . -name settings.gradle.kts -not -path './.git/*' | head -1)")
+          echo "Thu muc du an: $DIR"
+          cd "$DIR"
+          gradle assembleDebug --stacktrace
       - uses: actions/upload-artifact@v4
         with:
           name: GioHoc-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: "**/app/build/outputs/apk/debug/*.apk"
